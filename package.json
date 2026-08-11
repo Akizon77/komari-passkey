@@ -1,0 +1,32 @@
+{
+  "name": "komari-plugin-komari-passkey",
+  "version": "0.1.11",
+  "private": true,
+  "description": "Komari Passkey Komari plugin",
+  "scripts": {
+    "check": "komari-plugin-dev check",
+    "build:core": "esbuild src/webauthn-core.cjs --bundle --platform=node --target=node20 --format=cjs --outfile=runtime/webauthn-core.cjs",
+    "build": "npm run build:core && komari-plugin-dev build",
+    "pack": "npm run build && komari-plugin-dev pack",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build:core && node --test test/*.test.mjs",
+    "plugin:install": "npm run pack && komari-plugin-dev install --enable",
+    "dev": "npm run build:core && komari-plugin-dev dev"
+  },
+  "komari": {
+    "source": "src/plugin.ts",
+    "files": [
+      "runtime",
+      "assets"
+    ]
+  },
+  "dependencies": {
+    "@komari-monitor/plugin-sdk": "file:../plugin-sdk",
+    "@simplewebauthn/server": "13.3.2"
+  },
+  "devDependencies": {
+    "@komari-monitor/plugin-dev": "1.4.0",
+    "esbuild": "^0.28.1",
+    "typescript": "^5.0.0"
+  }
+}

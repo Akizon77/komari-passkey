@@ -1,0 +1,97 @@
+.km-passkey-error {
+  color: var(--red-11);
+  font-size: var(--font-size-2);
+  line-height: var(--line-height-2);
+  margin-top: 0.5rem;
+}
+
+.km-passkey-account {
+  min-width: min(100%, 20rem);
+  max-width: 32rem;
+}
+
+.km-passkey-credentials {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.km-passkey-credential {
+  align-items: center;
+  background: var(--gray-a2);
+  border: 1px solid var(--gray-a5);
+  border-radius: 6px;
+  display: flex;
+  gap: 0.75rem;
+  justify-content: space-between;
+  padding: 0.75rem;
+}
+
+.km-passkey-credential-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0;
+}
+
+.km-passkey-credential-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.km-passkey-credential-meta,
+.km-passkey-account-status {
+  color: var(--gray-11);
+  font-size: var(--font-size-2);
+  line-height: var(--line-height-2);
+}
+
+.km-passkey-account-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+
+.km-passkey-dialog-overlay {
+  z-index: 2147483647;
+}
+
+.km-passkey-dialog {
+  max-width: 37.5rem;
+}
+
+.km-passkey-dialog-copy {
+  color: var(--gray-11);
+  margin: 0;
+}
+
+.km-passkey-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.km-passkey-dialog-actions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+}
+
+@media (max-width: 640px) {
+  .km-passkey-account {
+    max-width: none;
+    width: 100%;
+  }
+
+  .km-passkey-credential {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .km-passkey-credential > button {
+    width: 100%;
+  }
+}

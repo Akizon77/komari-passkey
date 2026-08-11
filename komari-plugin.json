@@ -1,0 +1,203 @@
+{
+  "$schema": "./node_modules/@komari-monitor/plugin-sdk/schema/komari-plugin.schema.json",
+  "name": {
+    "zh-CN": "通行密钥",
+    "en": "Passkey"
+  },
+  "short": "komari-passkey",
+  "icon": "assets/passkey-icon.svg",
+  "description": {
+    "zh-CN": "为 Komari 提供通行密钥登录。安装后请前往账户页面添加并启用通行密钥。需要 Komari >=1.4.3。",
+    "en": "Passkey sign-in for Komari. After installation, open the Account page to add and enable a Passkey. Requires Komari >=1.4.3."
+  },
+  "version": "0.1.11",
+  "entry": "script.js",
+  "permissions": {
+    "node": true,
+    "allowRoutes": true,
+    "allowHTMLInject": true,
+    "allowSystemRPC": true,
+    "maxHTTPBodyBytes": 1048576,
+    "timeout": 15000
+  },
+  "komari": ">=1.4.3",
+  "configuration": {
+    "type": "managed",
+    "data": [
+      {
+        "key": "relying_party",
+        "name": {
+          "zh-CN": "依赖方",
+          "en": "Relying party"
+        },
+        "type": "title"
+      },
+      {
+        "key": "rp_id",
+        "name": {
+          "zh-CN": "RP ID",
+          "en": "RP ID"
+        },
+        "type": "string",
+        "help": {
+          "zh-CN": "留空时自动使用当前访问域名；也可手动填写，例如 komari.example.com。",
+          "en": "Leave blank to use the current host automatically, or enter a domain such as komari.example.com."
+        }
+      },
+      {
+        "key": "rp_name",
+        "name": {
+          "zh-CN": "依赖方名称",
+          "en": "Relying party name"
+        },
+        "type": "string",
+        "default": "Komari"
+      },
+      {
+        "key": "origins",
+        "name": {
+          "zh-CN": "允许的来源",
+          "en": "Allowed origins"
+        },
+        "type": "string",
+        "help": {
+          "zh-CN": "留空时自动使用当前页面来源；手动填写时用逗号或换行分隔完整来源，默认仅接受 HTTPS。",
+          "en": "Leave blank to use the current page origin automatically. For manual values, use comma- or newline-separated full origins. HTTPS is required by default."
+        }
+      },
+      {
+        "key": "allow_http_origins",
+        "name": {
+          "zh-CN": "允许 HTTP 来源",
+          "en": "Allow HTTP origins"
+        },
+        "type": "switch",
+        "default": false
+      },
+      {
+        "key": "authenticator_policy",
+        "name": {
+          "zh-CN": "认证器策略",
+          "en": "Authenticator policy"
+        },
+        "type": "title"
+      },
+      {
+        "key": "user_verification",
+        "name": {
+          "zh-CN": "用户验证",
+          "en": "User verification"
+        },
+        "type": "select",
+        "options": "required,preferred,discouraged",
+        "default": "required"
+      },
+      {
+        "key": "resident_key",
+        "name": {
+          "zh-CN": "驻留凭据",
+          "en": "Resident key"
+        },
+        "type": "select",
+        "options": "required,preferred,discouraged",
+        "default": "required"
+      },
+      {
+        "key": "authenticator_attachment",
+        "name": {
+          "zh-CN": "认证器类型",
+          "en": "Authenticator attachment"
+        },
+        "type": "select",
+        "options": "platform,cross-platform,any",
+        "default": "platform"
+      },
+      {
+        "key": "attestation_type",
+        "name": {
+          "zh-CN": "证明方式",
+          "en": "Attestation"
+        },
+        "type": "select",
+        "options": "none,direct,enterprise",
+        "default": "none"
+      },
+      {
+        "key": "allow_synced_credentials",
+        "name": {
+          "zh-CN": "允许同步通行密钥",
+          "en": "Allow synced passkeys"
+        },
+        "type": "switch",
+        "default": false,
+        "help": {
+          "zh-CN": "关闭时仅接受单设备凭据；要使用 Bitwarden 等同步通行密钥，请开启此项。",
+          "en": "When disabled, only single-device credentials are accepted. Enable this to use synced passkeys such as Bitwarden."
+        }
+      },
+      {
+        "key": "operation_policy",
+        "name": {
+          "zh-CN": "会话与操作策略",
+          "en": "Session and operation policy"
+        },
+        "type": "title"
+      },
+      {
+        "key": "challenge_ttl_seconds",
+        "name": {
+          "zh-CN": "挑战有效期（秒）",
+          "en": "Challenge lifetime (seconds)"
+        },
+        "type": "number",
+        "default": 120
+      },
+      {
+        "key": "webauthn_timeout_ms",
+        "name": {
+          "zh-CN": "浏览器验证超时（毫秒）",
+          "en": "Browser verification timeout (ms)"
+        },
+        "type": "number",
+        "default": 60000
+      },
+      {
+        "key": "session_ttl_seconds",
+        "name": {
+          "zh-CN": "通行密钥会话有效期（秒）",
+          "en": "Passkey session lifetime (seconds)"
+        },
+        "type": "number",
+        "default": 43200
+      },
+      {
+        "key": "cookie_secure",
+        "name": {
+          "zh-CN": "Cookie 仅限 HTTPS",
+          "en": "HTTPS-only cookie"
+        },
+        "type": "switch",
+        "default": true
+      },
+      {
+        "key": "cookie_same_site",
+        "name": {
+          "zh-CN": "Cookie SameSite",
+          "en": "Cookie SameSite"
+        },
+        "type": "select",
+        "options": "strict,lax,none",
+        "default": "strict"
+      },
+      {
+        "key": "max_credentials",
+        "name": {
+          "zh-CN": "最多通行密钥数量",
+          "en": "Maximum passkeys"
+        },
+        "type": "number",
+        "default": 5
+      }
+    ]
+  }
+}
