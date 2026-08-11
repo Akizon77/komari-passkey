@@ -10,7 +10,8 @@
     "zh-CN": "为 Komari 提供通行密钥登录。安装后请前往账户页面添加并启用通行密钥。需要 Komari >=1.4.3。",
     "en": "Passkey sign-in for Komari. After installation, open the Account page to add and enable a Passkey. Requires Komari >=1.4.3."
   },
-  "version": "0.1.11",
+  "author": "Akizon77",
+  "version": "0.1.12",
   "entry": "script.js",
   "permissions": {
     "node": true,
