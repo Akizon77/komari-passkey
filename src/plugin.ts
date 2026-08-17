@@ -25,7 +25,7 @@ const webauthn = require(
 
 type DatabaseValue = string | number | boolean | null;
 type RouteResult = Record<string, unknown>;
-type RuntimeDatabaseQueryResult = { Rows: unknown[][] };
+type RuntimeDatabaseQueryResult = { rows: unknown[][]; row_count: number };
 
 type SecurityConfig = {
   rpID: string;
@@ -100,6 +100,14 @@ function routeFailure(status: number, code: string): RouteFailure {
   error.status = status;
   error.code = code;
   return error;
+}
+
+function debugLog(event: string, details?: unknown) {
+  if (details === undefined) {
+    console.log("[komari-passkey]", event);
+    return;
+  }
+  console.log("[komari-passkey]", event, details);
 }
 
 function stringValue(value: unknown): string {
@@ -179,7 +187,11 @@ async function securityConfig(
   allowQueryOrigin = false,
 ): Promise<SecurityConfig> {
   const data = await server.getConfig<Record<string, unknown>>();
-  return inferredSecurityConfig({
+  debugLog("securityConfig:raw", {
+    keys: Object.keys(data),
+    allowQueryOrigin,
+  });
+  const config = inferredSecurityConfig({
     rpID: stringValue(data.rp_id).trim(),
     rpName: stringValue(data.rp_name).trim() || "Komari",
     origins: configurationOrigins(stringValue(data.origins)),
@@ -197,6 +209,17 @@ async function securityConfig(
     cookieSameSite: stringValue(data.cookie_same_site) || "strict",
     maxCredentials: numberValue(data.max_credentials, 5),
   }, req, allowQueryOrigin);
+  debugLog("securityConfig:resolved", {
+    rpID: config.rpID,
+    originCount: config.origins.length,
+    origins: config.origins,
+    allowHTTPOrigins: config.allowHTTPOrigins,
+    userVerification: config.userVerification,
+    residentKey: config.residentKey,
+    authenticatorAttachment: config.authenticatorAttachment,
+    allowSyncedCredentials: config.allowSyncedCredentials,
+  });
+  return config;
 }
 
 function isConfigured(config: SecurityConfig): boolean {
@@ -211,6 +234,11 @@ function isConfigured(config: SecurityConfig): boolean {
 
 async function configuredSecurityConfig(req: PluginRequest): Promise<SecurityConfig> {
   const config = await securityConfig(req);
+  debugLog("configuredSecurityConfig", {
+    configured: isConfigured(config),
+    rpID: config.rpID,
+    originCount: config.origins.length,
+  });
   if (!isConfigured(config)) {
     throw routeFailure(409, "configuration_required");
   }
@@ -235,19 +263,51 @@ async function callVerifier(
   pathname: string,
   payload: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
+  const response = objectValue(payload.response);
+  const credential = objectValue(payload.credential);
+  debugLog("verifier:request", {
+    pathname,
+    payloadKeys: Object.keys(payload),
+    responseKeys: Object.keys(response),
+    credentialKeys: Object.keys(credential),
+    credentialCount: Array.isArray(payload.credentials)
+      ? payload.credentials.length
+      : 0,
+    expectedChallengeLength:
+      typeof payload.expectedChallenge === "string"
+        ? payload.expectedChallenge.length
+        : 0,
+  });
   try {
-    return await webauthn.dispatch(pathname, payload);
+    const result = await webauthn.dispatch(pathname, payload);
+    debugLog("verifier:response", {
+      pathname,
+      resultKeys: Object.keys(result),
+      verified: result.verified,
+      challengeIdLength:
+        typeof result.challengeId === "string" ? result.challengeId.length : 0,
+      optionsKeys: Object.keys(objectValue(result.options)),
+      credentialKeys: Object.keys(objectValue(result.credential)),
+    });
+    return result;
   } catch (error) {
-    console.error("[komari-passkey] WebAuthn verification failed:", error);
+    console.error("[komari-passkey] WebAuthn verification failed:", {
+      pathname,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     throw routeFailure(400, "verification_failed");
   }
 }
 
 async function checkVerifier(): Promise<boolean> {
+  debugLog("verifier:health:start");
   try {
     await callVerifier("/health", {});
+    debugLog("verifier:health:ok");
     return true;
   } catch {
+    debugLog("verifier:health:failed");
     return false;
   }
 }
@@ -257,32 +317,56 @@ async function dbQuery(
   args: DatabaseValue[] = [],
   limit = 100,
 ): Promise<unknown[][]> {
+  debugLog("dbQuery:start", {
+    sql,
+    argCount: args.length,
+    limit,
+  });
   const result = (await server.call("admin:dbQuery", {
     database: "main",
     sql,
     args,
     limit,
   })) as unknown as RuntimeDatabaseQueryResult;
-  return result.Rows as unknown[][];
+  debugLog("dbQuery:result", {
+    keys: Object.keys(result),
+    rowCount: result.row_count,
+    rowsLength: Array.isArray(result.rows) ? result.rows.length : -1,
+  });
+  return result.rows as unknown[][];
 }
 
 async function dbExec(sql: string, args: DatabaseValue[] = []) {
+  debugLog("dbExec:start", {
+    sql,
+    argCount: args.length,
+  });
   await server.call("admin:dbExec", {
     database: "main",
     sql,
     args,
   });
+  debugLog("dbExec:ok");
 }
 
 async function onlyUser(): Promise<KomariUser> {
   const rows = await dbQuery("SELECT uuid, username FROM users LIMIT 1", [], 1);
+  debugLog("onlyUser:rows", {
+    rowCount: rows.length,
+    firstRowWidth: Array.isArray(rows[0]) ? rows[0].length : -1,
+  });
   if (rows.length === 0) {
     throw routeFailure(500, "user_unavailable");
   }
-  return {
+  const user = {
     uuid: stringValue(rows[0][0]),
     username: stringValue(rows[0][1]),
   };
+  debugLog("onlyUser:resolved", {
+    hasUUID: user.uuid.length > 0,
+    hasUsername: user.username.length > 0,
+  });
+  return user;
 }
 
 function stringArray(value: unknown): string[] {
@@ -301,14 +385,25 @@ function emptyPasskeyStore(): PasskeyStore {
 
 function readPasskeyStore(): PasskeyStore {
   if (!fs.existsSync(passkeyStorePath)) {
+    debugLog("store:read:empty", { exists: false });
     return emptyPasskeyStore();
   }
-  return JSON.parse(
+  const store = JSON.parse(
     stringValue(fs.readFileSync(passkeyStorePath, "utf8")),
   ) as PasskeyStore;
+  debugLog("store:read", {
+    exists: true,
+    credentialCount: store.credentials.length,
+    challengeCount: store.challenges.length,
+  });
+  return store;
 }
 
 function writePasskeyStore(store: PasskeyStore) {
+  debugLog("store:write", {
+    credentialCount: store.credentials.length,
+    challengeCount: store.challenges.length,
+  });
   fs.writeFileSync(passkeyStoreTemporaryPath, JSON.stringify(store), "utf8");
   fs.renameSync(passkeyStoreTemporaryPath, passkeyStorePath);
 }
@@ -330,10 +425,14 @@ function responseStoredCredential(
 }
 
 async function credentialsFor(userUUID: string): Promise<StoredCredential[]> {
-  return readPasskeyStore()
+  const credentials = readPasskeyStore()
     .credentials.filter((credential) => credential.userUUID === userUUID)
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     .map(responseStoredCredential);
+  debugLog("credentials:forUser", {
+    credentialCount: credentials.length,
+  });
+  return credentials;
 }
 
 async function credentialByID(
@@ -343,6 +442,12 @@ async function credentialByID(
   const credential = readPasskeyStore().credentials.find(
     (item) => item.userUUID === userUUID && item.id === credentialID,
   );
+  debugLog("credential:byID", {
+    credentialIDLength: credentialID.length,
+    found: Boolean(credential),
+    publicKeyLength: credential ? credential.publicKey.length : 0,
+    counter: credential ? credential.counter : null,
+  });
   return credential ? responseStoredCredential(credential) : null;
 }
 
@@ -369,6 +474,12 @@ async function saveChallenge(
 ) {
   const store = readPasskeyStore();
   cleanExpiredChallenges(store, nowISOString());
+  debugLog("challenge:save", {
+    purpose,
+    challengeIDLength: challengeID.length,
+    challengeLength: challenge.length,
+    existingCount: store.challenges.length,
+  });
   store.challenges.push({
     id: challengeID,
     purpose,
@@ -385,16 +496,26 @@ async function takeChallenge(
 ): Promise<StoredChallenge> {
   const store = readPasskeyStore();
   cleanExpiredChallenges(store, nowISOString());
+  debugLog("challenge:take:start", {
+    purpose,
+    challengeIDLength: challengeID.length,
+    availableCount: store.challenges.length,
+  });
   const index = store.challenges.findIndex(
     (challenge) =>
       challenge.id === challengeID && challenge.purpose === purpose,
   );
   if (index < 0) {
+    debugLog("challenge:take:missing", { purpose });
     writePasskeyStore(store);
     throw routeFailure(400, "challenge_expired");
   }
   const challenge = store.challenges.splice(index, 1)[0];
   writePasskeyStore(store);
+  debugLog("challenge:take:ok", {
+    purpose,
+    challengeLength: challenge.challenge.length,
+  });
   return {
     challenge: challenge.challenge,
     userUUID: challenge.userUUID,
@@ -404,6 +525,10 @@ async function takeChallenge(
 function userFromRequest(req: PluginRequest): KomariUser {
   const principal = req.context.principal;
   const uuid = stringValue(principal?.user_uuid);
+  debugLog("userFromRequest", {
+    principalType: principal?.type,
+    hasUUID: uuid.length > 0,
+  });
   if (principal?.type !== "user" || !uuid) {
     throw routeFailure(401, "authentication_required");
   }
@@ -414,9 +539,16 @@ function userFromRequest(req: PluginRequest): KomariUser {
 }
 
 function jsonBody(req: PluginRequest): Record<string, unknown> {
+  debugLog("jsonBody:start", { bodyLength: stringValue(req.body).length });
   try {
-    return objectValue(JSON.parse(req.body || "{}"));
-  } catch {
+    const body = objectValue(JSON.parse(req.body || "{}"));
+    debugLog("jsonBody:ok", { keys: Object.keys(body) });
+    return body;
+  } catch (error) {
+    console.error("[komari-passkey] jsonBody failed:", {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
     throw routeFailure(400, "invalid_request");
   }
 }
@@ -508,8 +640,19 @@ function route(
   handler: (req: PluginRequest, res: PluginResponse) => Promise<RouteResult>,
 ) {
   return async (req: PluginRequest, res: PluginResponse) => {
+    debugLog("route:start", {
+      method: req.method,
+      url: req.url,
+      bodyLength: stringValue(req.body).length,
+      principalType: req.context.principal?.type,
+    });
     try {
       const result = await handler(req, res);
+      debugLog("route:success", {
+        method: req.method,
+        url: req.url,
+        resultKeys: Object.keys(result),
+      });
       res.setHeader("Cache-Control", "no-store");
       jsonResponse(res, { ok: true, ...result });
     } catch (error) {
@@ -517,7 +660,14 @@ function route(
       const status = typeof failure.status === "number" ? failure.status : 500;
       const code =
         typeof failure.code === "string" ? failure.code : "internal_error";
-      console.error("[komari-passkey] Route failed:", code, String(error));
+      console.error("[komari-passkey] Route failed:", {
+        method: req.method,
+        url: req.url,
+        status,
+        code,
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       res.setHeader("Cache-Control", "no-store");
       jsonResponse(res, { ok: false, code }, status);
     }
@@ -529,6 +679,7 @@ function registerRoutes() {
     "GET",
     "/api/komari-passkey/status",
     route(async (req) => {
+      debugLog("route:status");
       const config = await securityConfig(req, true);
       if (!isConfigured(config)) {
         return {
@@ -552,6 +703,7 @@ function registerRoutes() {
     "GET",
     "/api/komari-passkey/credentials",
     route(async (req) => {
+      debugLog("route:credentials");
       const user = userFromRequest(req);
       const config = await securityConfig(req, true);
       const credentials = await credentialsFor(user.uuid);
@@ -567,6 +719,7 @@ function registerRoutes() {
     "POST",
     "/api/komari-passkey/registration/options",
     route(async (req) => {
+      debugLog("route:registration-options");
       const user = userFromRequest(req);
       const config = await configuredSecurityConfig(req);
       const account = await onlyUser();
@@ -584,6 +737,11 @@ function registerRoutes() {
       });
       const challengeID = stringValue(verifierResult.challengeId);
       const options = objectValue(verifierResult.options);
+      debugLog("registration-options:generated", {
+        challengeIDLength: challengeID.length,
+        challengeLength: stringValue(options.challenge).length,
+        optionKeys: Object.keys(options),
+      });
       await saveChallenge(
         "registration",
         challengeID,
@@ -602,6 +760,7 @@ function registerRoutes() {
     "POST",
     "/api/komari-passkey/registration/verify",
     route(async (req) => {
+      debugLog("route:registration-verify");
       const user = userFromRequest(req);
       const config = await configuredSecurityConfig(req);
       const body = jsonBody(req);
@@ -620,6 +779,11 @@ function registerRoutes() {
         config: serviceConfiguration(config),
         expectedChallenge: challenge.challenge,
         response: objectValue(body.response),
+      });
+      debugLog("registration-verify:result", {
+        verified: verifierResult.verified,
+        code: verifierResult.code,
+        credentialKeys: Object.keys(objectValue(verifierResult.credential)),
       });
       if (verifierResult.verified !== true) {
         throw routeFailure(400, stringValue(verifierResult.code) || "verification_failed");
@@ -641,6 +805,13 @@ function registerRoutes() {
       const store = readPasskeyStore();
       store.credentials.push(storedCredential);
       writePasskeyStore(store);
+      debugLog("registration-verify:stored", {
+        credentialIDLength: storedCredential.id.length,
+        publicKeyLength: storedCredential.publicKey.length,
+        counter: storedCredential.counter,
+        transportCount: storedCredential.transports.length,
+        deviceType: storedCredential.deviceType,
+      });
       return {
         credential: responseCredential(
           responseStoredCredential(storedCredential),
@@ -653,15 +824,21 @@ function registerRoutes() {
     "POST",
     "/api/komari-passkey/credentials/delete",
     route(async (req) => {
+      debugLog("route:credentials-delete");
       const user = userFromRequest(req);
       const body = jsonBody(req);
       const store = readPasskeyStore();
+      const beforeCount = store.credentials.length;
       store.credentials = store.credentials.filter(
         (credential) =>
           credential.userUUID !== user.uuid ||
           credential.id !== stringValue(body.credential_id),
       );
       writePasskeyStore(store);
+      debugLog("credentials-delete:done", {
+        beforeCount,
+        afterCount: store.credentials.length,
+      });
       return {};
     }),
   );
@@ -670,6 +847,7 @@ function registerRoutes() {
     "POST",
     "/api/komari-passkey/authentication/options",
     route(async (req) => {
+      debugLog("route:authentication-options");
       const config = await configuredSecurityConfig(req);
       const user = await onlyUser();
       const existing = await credentialsFor(user.uuid);
@@ -685,6 +863,14 @@ function registerRoutes() {
       });
       const challengeID = stringValue(verifierResult.challengeId);
       const options = objectValue(verifierResult.options);
+      debugLog("authentication-options:generated", {
+        challengeIDLength: challengeID.length,
+        challengeLength: stringValue(options.challenge).length,
+        optionKeys: Object.keys(options),
+        allowCredentialCount: Array.isArray(options.allowCredentials)
+          ? options.allowCredentials.length
+          : 0,
+      });
       await saveChallenge(
         "authentication",
         challengeID,
@@ -703,6 +889,7 @@ function registerRoutes() {
     "POST",
     "/api/komari-passkey/authentication/verify",
     route(async (req, res) => {
+      debugLog("route:authentication-verify");
       const config = await configuredSecurityConfig(req);
       const body = jsonBody(req);
       const response = objectValue(body.response);
@@ -717,6 +904,11 @@ function registerRoutes() {
       if (!credential) {
         throw routeFailure(400, "verification_failed");
       }
+      debugLog("authentication-verify:credential", {
+        responseIDLength: stringValue(response.id).length,
+        publicKeyLength: credential.publicKey.length,
+        counter: credential.counter,
+      });
       const verifierResult = await callVerifier("/authentication/verify", {
         config: serviceConfiguration(config),
         expectedChallenge: challenge.challenge,
@@ -727,6 +919,12 @@ function registerRoutes() {
           counter: credential.counter,
           transports: credential.transports,
         },
+      });
+      debugLog("authentication-verify:result", {
+        verified: verifierResult.verified,
+        code: verifierResult.code,
+        newCounter: verifierResult.newCounter,
+        sessionTokenLength: stringValue(verifierResult.sessionToken).length,
       });
       if (verifierResult.verified !== true) {
         throw routeFailure(400, stringValue(verifierResult.code) || "verification_failed");
@@ -753,6 +951,7 @@ function registerRoutes() {
       await createNativeSession(challenge.userUUID, sessionToken, req, config);
       notifyPasskeyLogin(req);
       res.setHeader("Set-Cookie", sessionCookie(sessionToken, config));
+      debugLog("authentication-verify:logged-in");
       return { logged_in: true };
     }),
   );
@@ -760,8 +959,10 @@ function registerRoutes() {
 
 definePlugin({
   async load() {
+    debugLog("plugin:load:start");
     registerRoutes();
     server.injectHTML(injectedHead, injectedBody);
     verifierAvailable = await checkVerifier();
+    debugLog("plugin:load:done", { verifierAvailable });
   },
 });

@@ -1,6 +1,6 @@
 {
   "name": "komari-plugin-komari-passkey",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "private": true,
   "description": "Komari Passkey Komari plugin",
   "scripts": {
@@ -25,7 +25,7 @@
     "@simplewebauthn/server": "13.3.2"
   },
   "devDependencies": {
-    "@komari-monitor/plugin-dev": "1.4.0",
+    "@komari-monitor/plugin-dev": "1.4.3",
     "esbuild": "^0.28.1",
     "typescript": "^5.0.0"
   }

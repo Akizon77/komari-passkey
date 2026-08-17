@@ -19,6 +19,26 @@ if (process.versions.node === "0.0.0-goja") {
 
 const { createHash, randomBytes, verify } = require("node:crypto");
 
+function debugLog(event, details) {
+  if (details === undefined) {
+    console.log("[komari-passkey][core]", event);
+    return;
+  }
+  console.log("[komari-passkey][core]", event, details);
+}
+
+function objectKeys(value) {
+  return value && typeof value === "object" ? Object.keys(value) : [];
+}
+
+function stringLength(value) {
+  return typeof value === "string" ? value.length : -1;
+}
+
+function arrayLength(value) {
+  return Array.isArray(value) ? value.length : -1;
+}
+
 function bytes(value) {
   return new Uint8Array(value);
 }
@@ -173,6 +193,10 @@ function attachment(value) {
 }
 
 function credentials(value) {
+  debugLog("credentials:input", {
+    isArray: Array.isArray(value),
+    count: arrayLength(value),
+  });
   return (value || []).map((credential) => ({
     id: credential.id,
     transports: credential.transports || undefined,
@@ -188,6 +212,14 @@ function acceptsCredential(config, deviceType) {
 }
 
 async function registrationOptions(body) {
+  debugLog("registrationOptions:start", {
+    bodyKeys: objectKeys(body),
+    configKeys: objectKeys(body.config),
+    userKeys: objectKeys(body.user),
+    userUUIDLength: stringLength(body.user && body.user.uuid),
+    usernameLength: stringLength(body.user && body.user.username),
+    credentialCount: arrayLength(body.credentials),
+  });
   const options = await generateRegistrationOptions({
     rpName: body.config.rpName,
     rpID: body.config.rpID,
@@ -204,20 +236,45 @@ async function registrationOptions(body) {
     },
     supportedAlgorithmIDs: [-7],
   });
-  return { challengeId: randomID(), options };
+  const result = { challengeId: randomID(), options };
+  debugLog("registrationOptions:success", {
+    challengeIDLength: result.challengeId.length,
+    challengeLength: stringLength(options.challenge),
+    optionKeys: objectKeys(options),
+  });
+  return result;
 }
 
 async function authenticationOptions(body) {
+  debugLog("authenticationOptions:start", {
+    bodyKeys: objectKeys(body),
+    configKeys: objectKeys(body.config),
+    credentialCount: arrayLength(body.credentials),
+  });
   const options = await generateAuthenticationOptions({
     rpID: body.config.rpID,
     timeout: body.config.timeoutMs,
     userVerification: body.config.userVerification,
     allowCredentials: credentials(body.credentials),
   });
-  return { challengeId: randomID(), options };
+  const result = { challengeId: randomID(), options };
+  debugLog("authenticationOptions:success", {
+    challengeIDLength: result.challengeId.length,
+    challengeLength: stringLength(options.challenge),
+    optionKeys: objectKeys(options),
+    allowCredentialCount: arrayLength(options.allowCredentials),
+  });
+  return result;
 }
 
 async function registrationVerification(body) {
+  debugLog("registrationVerification:start", {
+    bodyKeys: objectKeys(body),
+    configKeys: objectKeys(body.config),
+    responseKeys: objectKeys(body.response),
+    responseResponseKeys: objectKeys(body.response && body.response.response),
+    expectedChallengeLength: stringLength(body.expectedChallenge),
+  });
   const verification = await verifyRegistrationResponse({
     response: body.response,
     expectedChallenge: body.expectedChallenge,
@@ -227,15 +284,28 @@ async function registrationVerification(body) {
     supportedAlgorithmIDs: [-7],
   });
   if (!verification.verified) {
+    debugLog("registrationVerification:not-verified");
     return { verified: false };
   }
 
   const info = verification.registrationInfo;
+  debugLog("registrationVerification:verified", {
+    credentialIDLength: stringLength(info.credential && info.credential.id),
+    publicKeyLength: info.credential && info.credential.publicKey
+      ? info.credential.publicKey.length
+      : -1,
+    counter: info.credential && info.credential.counter,
+    deviceType: info.credentialDeviceType,
+    backedUp: info.credentialBackedUp,
+  });
   if (!acceptsCredential(body.config, info.credentialDeviceType)) {
+    debugLog("registrationVerification:credential-rejected", {
+      deviceType: info.credentialDeviceType,
+    });
     return { verified: false, code: "synced_credential_not_allowed" };
   }
 
-  return {
+  const result = {
     verified: true,
     credential: {
       id: info.credential.id,
@@ -246,9 +316,26 @@ async function registrationVerification(body) {
     credentialDeviceType: info.credentialDeviceType,
     credentialBackedUp: info.credentialBackedUp,
   };
+  debugLog("registrationVerification:success", {
+    resultKeys: objectKeys(result),
+    credentialKeys: objectKeys(result.credential),
+    publicKeyLength: result.credential.publicKey.length,
+  });
+  return result;
 }
 
 async function authenticationVerification(body) {
+  debugLog("authenticationVerification:start", {
+    bodyKeys: objectKeys(body),
+    configKeys: objectKeys(body.config),
+    responseKeys: objectKeys(body.response),
+    responseResponseKeys: objectKeys(body.response && body.response.response),
+    credentialKeys: objectKeys(body.credential),
+    credentialIDLength: stringLength(body.credential && body.credential.id),
+    publicKeyLength: stringLength(body.credential && body.credential.publicKey),
+    counter: body.credential && body.credential.counter,
+    expectedChallengeLength: stringLength(body.expectedChallenge),
+  });
   const verification = await verifyAuthenticationResponse({
     response: body.response,
     expectedChallenge: body.expectedChallenge,
@@ -263,15 +350,25 @@ async function authenticationVerification(body) {
     requireUserVerification: requireUserVerification(body.config),
   });
   if (!verification.verified) {
+    debugLog("authenticationVerification:not-verified");
     return { verified: false };
   }
 
   const info = verification.authenticationInfo;
+  debugLog("authenticationVerification:verified", {
+    credentialIDLength: stringLength(info.credentialID),
+    newCounter: info.newCounter,
+    deviceType: info.credentialDeviceType,
+    backedUp: info.credentialBackedUp,
+  });
   if (!acceptsCredential(body.config, info.credentialDeviceType)) {
+    debugLog("authenticationVerification:credential-rejected", {
+      deviceType: info.credentialDeviceType,
+    });
     return { verified: false, code: "synced_credential_not_allowed" };
   }
 
-  return {
+  const result = {
     verified: true,
     credentialID: info.credentialID,
     newCounter: info.newCounter,
@@ -279,22 +376,52 @@ async function authenticationVerification(body) {
     credentialBackedUp: info.credentialBackedUp,
     sessionToken: base64URLFromBytes(randomBytes(32)),
   };
+  debugLog("authenticationVerification:success", {
+    resultKeys: objectKeys(result),
+    sessionTokenLength: result.sessionToken.length,
+  });
+  return result;
 }
 
 async function dispatch(pathname, body) {
-  switch (pathname) {
-    case "/health":
-      return {};
-    case "/registration/options":
-      return registrationOptions(body);
-    case "/registration/verify":
-      return registrationVerification(body);
-    case "/authentication/options":
-      return authenticationOptions(body);
-    case "/authentication/verify":
-      return authenticationVerification(body);
-    default:
-      throw new Error("not_found");
+  debugLog("dispatch:start", {
+    pathname,
+    bodyKeys: objectKeys(body),
+  });
+  try {
+    let result;
+    switch (pathname) {
+      case "/health":
+        result = {};
+        break;
+      case "/registration/options":
+        result = await registrationOptions(body);
+        break;
+      case "/registration/verify":
+        result = await registrationVerification(body);
+        break;
+      case "/authentication/options":
+        result = await authenticationOptions(body);
+        break;
+      case "/authentication/verify":
+        result = await authenticationVerification(body);
+        break;
+      default:
+        throw new Error("not_found");
+    }
+    debugLog("dispatch:success", {
+      pathname,
+      resultKeys: objectKeys(result),
+      verified: result.verified,
+    });
+    return result;
+  } catch (error) {
+    console.error("[komari-passkey][core] dispatch failed:", {
+      pathname,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    throw error;
   }
 }
 
