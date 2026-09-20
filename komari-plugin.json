@@ -11,7 +11,7 @@
     "en": "Passkey sign-in for Komari. After installation, open the Account page to add and enable a Passkey. Requires Komari >=1.4.3."
   },
   "author": "Akizon77",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "entry": "script.js",
   "permissions": {
     "node": true,
@@ -21,7 +21,7 @@
     "maxHTTPBodyBytes": 1048576,
     "timeout": 15000
   },
-  "komari": ">=1.4.3",
+  "komari": ">=1.6.0",
   "configuration": {
     "type": "managed",
     "data": [

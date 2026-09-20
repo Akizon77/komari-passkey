@@ -1,6 +1,6 @@
 {
   "name": "komari-plugin-komari-passkey",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "private": true,
   "description": "Komari Passkey Komari plugin",
   "scripts": {

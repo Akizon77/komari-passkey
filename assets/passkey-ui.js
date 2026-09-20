@@ -279,7 +279,30 @@
         });
       })
       .then(function () {
-        window.location.reload();
+        if (!dialog.classList.contains("km-login-card")) {
+          window.location.reload();
+          return;
+        }
+        var redirect = "/admin/dashboard";
+        try {
+          redirect = new URLSearchParams(window.location.search).get("redirect") || redirect;
+          if (
+            redirect.charAt(0) !== "/" ||
+            redirect.charAt(1) === "/" ||
+            redirect.indexOf("\\") !== -1
+          ) {
+            redirect = "/admin/dashboard";
+          }
+          var target = new URL(redirect, window.location.origin);
+          if (target.origin !== window.location.origin) {
+            redirect = "/admin/dashboard";
+          } else {
+            redirect = target.pathname + target.search + target.hash;
+          }
+        } catch (error) {
+          redirect = "/admin/dashboard";
+        }
+        window.location.replace(redirect);
       })
       .catch(function (error) {
         loginError(dialog, errorMessage(error));
@@ -296,7 +319,7 @@
       if (!status.enabled) {
         return;
       }
-      document.querySelectorAll(".km-login-dialog, .km-restricted-login-dialog").forEach(function (dialog) {
+      document.querySelectorAll(".km-login-card, .km-login-dialog, .km-restricted-login-dialog").forEach(function (dialog) {
         if (dialog.querySelector(".km-passkey-login")) {
           return;
         }
